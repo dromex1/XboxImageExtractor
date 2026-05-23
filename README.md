@@ -34,7 +34,7 @@ A modern, high-performance, All-In-One C# (.NET 8 / WinForms) utility designed f
 
 ## 📦 Installation & Usage
 1. Download the latest `Release` or clone the repository.
-2. Build via Visual Studio 2022 or run `dotnet run` in the project directory.
+2. Build via Visual Studio 2022 or run `dotnet run` in the project directory or just download release build.
 3. Click `File -> Open ISO Image...` or navigate the intuitive Tab UI at the top.
 4. Right-click any directory to extract it to HDD (`Extract...`) or burn it directly.
 
