@@ -21,7 +21,7 @@ A modern, high-performance C# (.NET 8 / WinForms) tool for browsing, extracting,
 
 ## 📦 Installation & Usage
 1. Download the latest `Release` or clone the repository.
-2. Build via Visual Studio 2022 or run `dotnet run` in the project directory.
+2. Build via Visual Studio 2022 or run `dotnet run` in the project directory or just download the release build 
 3. Click `File -> Open ISO Image...` or `Open from DVD/CD Drive`.
 4. Right-click any directory to extract it to HDD or burn it directly to a CD/DVD.
 *(Note: Administrator privileges are required to Rip from physical DVD drives).*
