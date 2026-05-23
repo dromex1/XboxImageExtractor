@@ -36,7 +36,7 @@ namespace XboxImageExtractor.Core
             {
                 MainSectorOffset = FindMagicOffset();
                 if (MainSectorOffset < 0)
-                    throw new InvalidDataException("Nie znaleziono poprawnego nagłówka GDFX w obiekcie ISO.");
+                    throw new InvalidDataException("Valid GDFX header could not be found in the provided ISO.");
 
                 PartitionBaseOffset = MainSectorOffset - 0x10000;
 
