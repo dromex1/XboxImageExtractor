@@ -20,6 +20,7 @@ namespace XboxImageExtractor.Core
 
     public static class GameDownloader
     {
+        public static bool IsPaused { get; set; } = false;
         private static readonly HttpClient _httpClient = new HttpClient();
 
         static GameDownloader()
@@ -43,26 +44,34 @@ namespace XboxImageExtractor.Core
 
                 string vaultPageHtml = await _httpClient.GetStringAsync(game.Url, ct);
 
-                // Find the mediaId from the vault page
-                string mediaId = ExtractMediaId(vaultPageHtml);
-                if (string.IsNullOrEmpty(mediaId))
+                // Find the mediaId and download URL from the vault page
+                var dlInfo = ExtractDownloadInfo(vaultPageHtml);
+                if (string.IsNullOrEmpty(dlInfo.MediaId) || string.IsNullOrEmpty(dlInfo.DownloadUrl))
                 {
                     prog.HasError = true;
-                    prog.ErrorMessage = "Could not find download link on vault page.";
+                    prog.ErrorMessage = "Could not find download form on vault page.";
                     progress.Report(prog);
                     return;
                 }
 
-                // Step 2: POST to Vimm's download endpoint
-                string downloadUrl = $"https://download2.vimm.net/download/?mediaId={mediaId}";
-                
-                using (var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl))
+                // Step 2: GET to Vimm's dynamic download endpoint
+                string finalDownloadUrl = dlInfo.DownloadUrl.Contains("?") 
+                    ? $"{dlInfo.DownloadUrl}&mediaId={dlInfo.MediaId}"
+                    : $"{dlInfo.DownloadUrl}?mediaId={dlInfo.MediaId}";
+
+                using (var request = new HttpRequestMessage(HttpMethod.Get, finalDownloadUrl))
                 {
                     request.Headers.Referrer = new Uri(game.Url);
 
                     using (var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct))
                     {
-                        response.EnsureSuccessStatusCode();
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            if (response.StatusCode == System.Net.HttpStatusCode.BadRequest || response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                                throw new Exception("Vimm's Lair rejected the download. You can only download ONE game at a time. Please wait for the current download to finish, or your IP limit is reached.");
+                            
+                            response.EnsureSuccessStatusCode();
+                        }
 
                         long? totalBytes = response.Content.Headers.ContentLength;
                         prog.TotalBytes = totalBytes ?? 0;
@@ -86,6 +95,9 @@ namespace XboxImageExtractor.Core
 
                             while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length, ct)) != 0)
                             {
+                                while (IsPaused && !ct.IsCancellationRequested)
+                                    await Task.Delay(200, ct);
+
                                 await fs.WriteAsync(buffer, 0, bytesRead, ct);
                                 prog.DownloadedBytes += bytesRead;
 
@@ -99,6 +111,9 @@ namespace XboxImageExtractor.Core
 
                         prog.IsComplete = true;
                         progress.Report(prog);
+
+                        // Register in tracker
+                        MyDownloadsManager.RegisterDownload(destPath);
                     }
                 }
             }
@@ -116,25 +131,30 @@ namespace XboxImageExtractor.Core
             }
         }
 
-        private static string ExtractMediaId(string html)
+        private static (string MediaId, string DownloadUrl) ExtractDownloadInfo(string html)
         {
-            // Look for mediaId in hidden input or download form
-            // Pattern: <input ... name="mediaId" ... value="12345" />
+            string mediaId = null;
+            string downloadUrl = null;
+
+            // Find mediaId
             var inputRegex = new Regex(@"name=""mediaId""[^>]*value=""(\d+)""", RegexOptions.IgnoreCase);
             var match = inputRegex.Match(html);
-            if (match.Success) return match.Groups[1].Value;
+            if (match.Success) 
+                mediaId = match.Groups[1].Value;
 
-            // Alternative: value first then name
-            var altRegex = new Regex(@"value=""(\d+)""[^>]*name=""mediaId""", RegexOptions.IgnoreCase);
-            match = altRegex.Match(html);
-            if (match.Success) return match.Groups[1].Value;
+            // Find form action
+            var formActionRegex = new Regex(@"<form[^>]*action=""([^""]+)""[^>]*id=""dl_form""", RegexOptions.IgnoreCase);
+            var actionMatch = formActionRegex.Match(html);
+            if (actionMatch.Success)
+            {
+                downloadUrl = actionMatch.Groups[1].Value;
+                if (downloadUrl.StartsWith("//"))
+                    downloadUrl = "https:" + downloadUrl;
+                else if (downloadUrl.StartsWith("/"))
+                    downloadUrl = "https://vimm.net" + downloadUrl;
+            }
 
-            // Alternative: direct download link pattern
-            var linkRegex = new Regex(@"download/?.*?mediaId=(\d+)", RegexOptions.IgnoreCase);
-            match = linkRegex.Match(html);
-            if (match.Success) return match.Groups[1].Value;
-
-            return null;
+            return (mediaId, downloadUrl);
         }
     }
 }

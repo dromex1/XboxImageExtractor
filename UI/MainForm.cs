@@ -46,15 +46,20 @@ namespace XboxImageExtractor.UI
         private ComboBox cbSystemFilter;
         private Button btnLoadGameList;
         private Button btnDownloadGame;
-        private Button btnDownloadsMenu; // The Chrome style icon button
+        private Button btnDownloadsMenu;
+        private Button btnPauseDownload;
+        private Button btnCancelDownload;
         private Panel pnlDownloadNotification;
         private Label lblDownloadStatus;
         private ProgressBar pbDownload;
         private List<VimmGame> _allGames = new List<VimmGame>();
         private CancellationTokenSource _downloadCts;
+        private bool _isDownloading = false;
         private bool _gamesLoaded = false;
         private System.Windows.Forms.Timer _searchDebounceTimer;
         private CancellationTokenSource _searchCts;
+        private ListView lvMyDownloads;
+        private Button btnRefreshDownloads;
         
         private StatusStrip statusStrip;
         private ToolStripStatusLabel statusFilesLabel;
@@ -340,12 +345,12 @@ namespace XboxImageExtractor.UI
             lvGames.Columns.Add("Title", 500);
             lvGames.Columns.Add("System", 120);
             lvGames.Columns.Add("Vault ID", 100);
-            lvGames.SelectedIndexChanged += (s, e) => { btnDownloadGame.Enabled = lvGames.SelectedItems.Count > 0; };
+            lvGames.SelectedIndexChanged += (s, e) => { btnDownloadGame.Enabled = lvGames.SelectedItems.Count > 0 && !_isDownloading; };
             
             // Download notification panel (Chrome-style dropdown menu)
             pnlDownloadNotification = new Panel 
             { 
-                Size = new Size(320, 70), 
+                Size = new Size(320, 115), 
                 BackColor = Color.FromArgb(240, 240, 240),
                 BorderStyle = BorderStyle.FixedSingle,
                 Visible = false,
@@ -355,17 +360,66 @@ namespace XboxImageExtractor.UI
             { 
                 ForeColor = Color.Black, 
                 Location = new Point(10, 10), 
-                Size = new Size(300, 20), 
+                Size = new Size(300, 35), 
                 Text = "No active downloads."
             };
             pbDownload = new ProgressBar 
             { 
-                Location = new Point(10, 35), 
-                Size = new Size(300, 20), 
+                Location = new Point(10, 50), 
+                Size = new Size(300, 35), 
                 Style = ProgressBarStyle.Continuous 
             };
+            btnPauseDownload = new Button
+            {
+                Text = "Pause",
+                Location = new Point(10, 75),
+                Size = new Size(140, 28)
+            };
+            btnCancelDownload = new Button
+            {
+                Text = "Cancel",
+                Location = new Point(170, 75),
+                Size = new Size(140, 28)
+            };
+
+            btnPauseDownload.Click += (s, e) => {
+                GameDownloader.IsPaused = !GameDownloader.IsPaused;
+                btnPauseDownload.Text = GameDownloader.IsPaused ? "Resume" : "Pause";
+            };
+            btnCancelDownload.Click += (s, e) => {
+                _downloadCts?.Cancel();
+                btnCancelDownload.Enabled = false;
+            };
+
             pnlDownloadNotification.Controls.Add(lblDownloadStatus);
+
+            btnPauseDownload = new Button
+            {
+                Text = "Pause",
+                Location = new Point(10, 75),
+                Size = new Size(140, 28)
+            };
+            btnCancelDownload = new Button
+            {
+                Text = "Cancel",
+                Location = new Point(170, 75),
+                Size = new Size(140, 28)
+            };
+
+            btnPauseDownload.Click += (s, e) => {
+                XboxImageExtractor.Core.GameDownloader.IsPaused = !XboxImageExtractor.Core.GameDownloader.IsPaused;
+                btnPauseDownload.Text = XboxImageExtractor.Core.GameDownloader.IsPaused ? "Resume" : "Pause";
+            };
+            btnCancelDownload.Click += (s, e) => {
+                _downloadCts?.Cancel();
+                btnCancelDownload.Enabled = false;
+            };
+
+            pnlDownloadNotification.Controls.Add(btnPauseDownload);
+            pnlDownloadNotification.Controls.Add(btnCancelDownload);
             pnlDownloadNotification.Controls.Add(pbDownload);
+            pnlDownloadNotification.Controls.Add(btnPauseDownload);
+            pnlDownloadNotification.Controls.Add(btnCancelDownload);
             
             tabDownloader.Controls.Add(lblFilter);
             tabDownloader.Controls.Add(cbSystemFilter);
@@ -408,11 +462,140 @@ namespace XboxImageExtractor.UI
             tabAbout.Controls.Add(linkIg);
             tabAbout.Controls.Add(lblThanks);
 
+            // === TAB 7: MY DOWNLOADS ===
+            var tabMyDownloads = new TabPage("My Downloads");
+
+            var dgvDownloads = new DataGridView
+            {
+                Location = new Point(20, 50),
+                Size = new Size(920, 440),
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                RowHeadersVisible = false,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                ReadOnly = true,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                BackgroundColor = System.Drawing.Color.FromArgb(30, 30, 30),
+                ForeColor = System.Drawing.Color.White,
+                GridColor = System.Drawing.Color.FromArgb(60, 60, 60),
+                BorderStyle = BorderStyle.None
+            };
+            dgvDownloads.ColumnHeadersDefaultCellStyle.BackColor = System.Drawing.Color.FromArgb(45, 45, 48);
+            dgvDownloads.ColumnHeadersDefaultCellStyle.ForeColor = System.Drawing.Color.White;
+            dgvDownloads.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            dgvDownloads.DefaultCellStyle.BackColor = System.Drawing.Color.FromArgb(30, 30, 30);
+            dgvDownloads.DefaultCellStyle.ForeColor = System.Drawing.Color.White;
+            dgvDownloads.DefaultCellStyle.SelectionBackColor = System.Drawing.Color.FromArgb(0, 122, 204);
+            dgvDownloads.EnableHeadersVisualStyles = false;
+
+            dgvDownloads.Columns.Add(new DataGridViewTextBoxColumn { Name = "colName", HeaderText = "Game File", FillWeight = 50, ReadOnly = true });
+            dgvDownloads.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSize", HeaderText = "Size", FillWeight = 15, ReadOnly = true });
+            dgvDownloads.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDate", HeaderText = "Date Downloaded", FillWeight = 20, ReadOnly = true });
+
+            var btnCol = new DataGridViewButtonColumn
+            {
+                Name = "colExtract",
+                HeaderText = "Action",
+                Text = "Extract & Load ISO",
+                UseColumnTextForButtonValue = true,
+                FillWeight = 15
+            };
+            dgvDownloads.Columns.Add(btnCol);
+
+            var pbExtract = new ProgressBar { Location = new Point(20, 500), Size = new Size(920, 18), Visible = false, Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right };
+            var lblExtractStatus = new Label { Location = new Point(20, 520), Size = new Size(920, 20), ForeColor = System.Drawing.Color.Gray, Text = "", Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right };
+
+            btnRefreshDownloads = new Button { Text = "⟳  Refresh List", Location = new Point(20, 15), Size = new Size(140, 28) };
+            btnRefreshDownloads.Click += (s, e) =>
+            {
+                dgvDownloads.Rows.Clear();
+                var games = XboxImageExtractor.Core.MyDownloadsManager.GetDownloadedGames();
+                if (games.Count == 0)
+                {
+                    lblExtractStatus.Text = "No downloads found. Download a game from the Game Downloader tab first.";
+                    return;
+                }
+                lblExtractStatus.Text = $"{games.Count} downloaded game(s) found.";
+                foreach (var g in games)
+                {
+                    int idx = dgvDownloads.Rows.Add(g.FileName, g.FileSize, g.DateModified.ToString("g"));
+                    dgvDownloads.Rows[idx].Tag = g;
+                }
+            };
+
+            dgvDownloads.CellContentClick += async (s, e) =>
+            {
+                if (e.ColumnIndex < 0 || e.RowIndex < 0) return;
+                if (dgvDownloads.Columns[e.ColumnIndex].Name != "colExtract") return;
+
+                var g = dgvDownloads.Rows[e.RowIndex].Tag as XboxImageExtractor.Core.DownloadedGameInfo;
+                if (g == null) return;
+
+                lblExtractStatus.Text = $"Unpacking {g.FileName}...";
+                pbExtract.Value = 0;
+                pbExtract.Visible = true;
+                btnRefreshDownloads.Enabled = false;
+
+                var progress = new Progress<int>(p =>
+                {
+                    pbExtract.Value = Math.Min(p, 100);
+                    lblExtractStatus.Text = $"Extracting ISO... {p}%";
+                });
+
+                try
+                {
+                    EnableUI(false);
+                    await XboxImageExtractor.Core.MyDownloadsManager.ExtractAndLoadArchiveAsync(g.FullPath, progress, (isoPath, isClassic) =>
+                    {
+                        this.Invoke((Action)(async () =>
+                        {
+                            if (isClassic)
+                            {
+                                tabControl.SelectedTab = tabClassic;
+                                await LoadClassicIsoAsync(isoPath);
+                            }
+                            else
+                            {
+                                tabControl.SelectedTab = tab360;
+                                await LoadIsoAsync(isoPath);
+                            }
+                            MessageBox.Show(
+                                "ISO extracted and loaded!\n\nNow select the root directory (e.g. your USB drive letter) in Extract to copy all game files to your pendrive.",
+                                "Ready for Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }));
+                    });
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "Unpack Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                finally
+                {
+                    EnableUI(true);
+                    pbExtract.Visible = false;
+                    lblExtractStatus.Text = "Done!";
+                    btnRefreshDownloads.Enabled = true;
+                }
+            };
+
+            tabControl.SelectedIndexChanged += (s, e) =>
+            {
+                if (tabControl.SelectedTab == tabMyDownloads && dgvDownloads.Rows.Count == 0)
+                    btnRefreshDownloads.PerformClick();
+            };
+
+            tabMyDownloads.Controls.Add(btnRefreshDownloads);
+            tabMyDownloads.Controls.Add(dgvDownloads);
+            tabMyDownloads.Controls.Add(pbExtract);
+            tabMyDownloads.Controls.Add(lblExtractStatus);
+
             tabControl.TabPages.Add(tab360);
             tabControl.TabPages.Add(tabClassic);
             tabControl.TabPages.Add(tabGod);
             tabControl.TabPages.Add(tabSoftmod);
             tabControl.TabPages.Add(tabDownloader);
+            tabControl.TabPages.Add(tabMyDownloads);
             tabControl.TabPages.Add(tabAbout);
 
             // Layout
@@ -540,6 +723,38 @@ namespace XboxImageExtractor.UI
             }
         }
 
+        public async Task LoadClassicIsoAsync(string filePath)
+        {
+            try
+            {
+                if (_currentClassicArchive != null) _currentClassicArchive.Dispose();
+                
+                this.UseWaitCursor = true;
+                currentFileNameLabel.Text = "Parsing Classic structure...";
+                
+                _currentClassicArchive = new GdfxArchive(filePath);
+                await _currentClassicArchive.LoadAsync();
+                
+                treeViewClassic.Nodes.Clear();
+                var rootNode = new TreeNode(Path.GetFileName(filePath)) { Tag = _currentClassicArchive.RootDirectory };
+                AddChildrenToNode(rootNode, _currentClassicArchive.RootDirectory);
+                treeViewClassic.Nodes.Add(rootNode);
+                rootNode.Expand();
+                
+                statusFilesLabel.Text = $"Dirs: {_currentClassicArchive.DirectoryCount} Files: {_currentClassicArchive.FileCount}";
+                _ = Analytics.LogEventAsync("IsoOpened", $"Classic Xbox ISO Opened. Files: {_currentClassicArchive.FileCount}");
+                
+                btnLoadClassicIso.Visible = false;
+                splitContainerClassic.Visible = true;
+                currentFileNameLabel.Text = "Idle";
+            }
+            finally
+            {
+                this.UseWaitCursor = false;
+                EnableUI(true);
+            }
+        }
+
         private async void BtnLoadClassicIso_Click(object sender, EventArgs e)
         {
             using (var ofd = new OpenFileDialog())
@@ -549,34 +764,11 @@ namespace XboxImageExtractor.UI
                 {
                     try
                     {
-                        if (_currentClassicArchive != null) _currentClassicArchive.Dispose();
-                        
-                        this.UseWaitCursor = true;
-                        currentFileNameLabel.Text = "Parsing Classic structure...";
-                        
-                        _currentClassicArchive = new GdfxArchive(ofd.FileName);
-                        await _currentClassicArchive.LoadAsync();
-                        
-                        treeViewClassic.Nodes.Clear();
-                        var rootNode = new TreeNode(Path.GetFileName(ofd.FileName)) { Tag = _currentClassicArchive.RootDirectory };
-                        AddChildrenToNode(rootNode, _currentClassicArchive.RootDirectory);
-                        treeViewClassic.Nodes.Add(rootNode);
-                        rootNode.Expand();
-
-                        statusFilesLabel.Text = $"Dirs: {_currentClassicArchive.DirectoryCount} Files: {_currentClassicArchive.FileCount}";
-                        _ = Analytics.LogEventAsync("IsoOpened", $"Classic Xbox ISO Opened. Files: {_currentClassicArchive.FileCount}");
-                        
-                        btnLoadClassicIso.Visible = false;
-                        splitContainerClassic.Visible = true;
-                        currentFileNameLabel.Text = "Idle";
+                        await LoadClassicIsoAsync(ofd.FileName);
                     }
                     catch (Exception ex)
                     {
-                        MessageBox.Show($"Classic ISO Load Error: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
-                    finally
-                    {
-                        this.UseWaitCursor = false;
+                        MessageBox.Show($"Błąd odczytu XISO: {ex.Message}", "Błąd", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                 }
             }
@@ -779,7 +971,10 @@ namespace XboxImageExtractor.UI
 
         private async void BtnDownloadGame_Click(object sender, EventArgs e)
         {
+            if (_isDownloading) return;
             if (lvGames.SelectedItems.Count == 0) return;
+            _isDownloading = true;
+            
             var game = (VimmGame)lvGames.SelectedItems[0].Tag;
 
             string downloadPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
@@ -790,6 +985,10 @@ namespace XboxImageExtractor.UI
             pbDownload.Value = 0;
             btnDownloadGame.Enabled = false;
 
+            XboxImageExtractor.Core.GameDownloader.IsPaused = false;
+            btnPauseDownload.Text = "Pause";
+            btnPauseDownload.Enabled = true;
+            btnCancelDownload.Enabled = true;
             _downloadCts = new CancellationTokenSource();
             var progress = new Progress<DownloadProgress>(p =>
             {
@@ -822,7 +1021,8 @@ namespace XboxImageExtractor.UI
             }
             finally
             {
-                btnDownloadGame.Enabled = true;
+                _isDownloading = false;
+                btnDownloadGame.Enabled = lvGames.SelectedItems.Count > 0;
                 // Auto-hide notification after 15 seconds
                 _ = Task.Delay(15000).ContinueWith(_ => 
                 {
@@ -1009,8 +1209,18 @@ namespace XboxImageExtractor.UI
                     {
                         var timer = Stopwatch.StartNew();
                         string srcPath = tabControl.SelectedTab.Text.Contains("Classic") ? _currentClassicArchive?.ImagePath : _currentArchive?.ImagePath;
+                        string destinationFolder = fbd.SelectedPath;
+
+                        // Add wrapping folder if user simply selects a root drive letter (e.g. D:\)
+                        if (Path.GetPathRoot(destinationFolder) == destinationFolder)
+                        {
+                            string gameName = srcPath != null ? Path.GetFileNameWithoutExtension(srcPath) : "XboxGame";
+                            destinationFolder = Path.Combine(destinationFolder, gameName);
+                            Directory.CreateDirectory(destinationFolder); // Ensure the wrapping folder is created on the pendrive
+                        }
+
                         await ExecuteActionWithProgressAsync(
-                            targetEntry, fbd.SelectedPath, "Extracting in background (Asynchronous)...", async (extractor, entry, dest, prog) => {
+                            targetEntry, destinationFolder, "Extracting in background (Asynchronous)...", async (extractor, entry, dest, prog) => {
                                 await extractor.ExtractAsync(srcPath, entry, dest, prog);
                             }
                         );
@@ -1098,3 +1308,6 @@ namespace XboxImageExtractor.UI
         }
     }
 }
+
+
+

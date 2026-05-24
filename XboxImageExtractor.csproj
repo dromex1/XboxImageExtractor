@@ -9,4 +9,8 @@
     <ApplicationIcon>Xbox_Image_Extractor_Final.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="SharpCompress" Version="0.30.1" />
+  </ItemGroup>
+
 </Project>
