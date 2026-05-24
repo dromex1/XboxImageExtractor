@@ -51,6 +51,14 @@ A modern, high-performance, All-In-One C# (.NET 8 / WinForms) utility designed f
 2. Extract the `.zip` and run `XboxImageExtractor.exe` — no installation needed.
 3. Click `File -> Open ISO Image...` or navigate the intuitive Tab UI at the top.
 4. Use `Game Downloader` to find and download games, then switch to `My Downloads` to unpack and extract them to your USB drive.
+5. 
+
+<img width="1920" height="1039" alt="image" src="https://github.com/user-attachments/assets/f1022ccc-9531-44c5-8fcc-898896402a42" />
+<img width="1920" height="1045" alt="image" src="https://github.com/user-attachments/assets/a28a56d4-a7f8-41db-82b8-683d712ae686" />
+<img width="1920" height="1042" alt="image" src="https://github.com/user-attachments/assets/6b8c7a48-3d08-41ab-95ee-2a7a5f772916" />
+
+
+
 
 ## 📄 License
 This project is licensed under the MIT License.
